@@ -1,61 +1,104 @@
 import 'dart:convert';
-
 import 'package:http/http.dart' as http;
-
 import '../../models/gestion-stock/modelstock.dart';
 
-
 class StockService {
+  static const baseUrl = "http://192.168.1.200:3000/api/stock";
 
-  static const baseUrl = "http://192.168.1.16:3000/api/stock";
-
-  static Future<List<Stock>> getStocks() async {
-
-    final res = await http.get(Uri.parse(baseUrl));
-
-    final data = jsonDecode(res.body);
-
-    return List<Stock>.from(data.map((e) => Stock.fromJson(e)));
-
-  }
-  static Future<List<Stock>> getStocksByExpl(int code_expl) async {
+  // ✅ Récupérer tous les stocks
+  static Future<List<Stock>> getStocks(String token) async {
     final res = await http.get(
-      Uri.parse("$baseUrl/expl/$code_expl"),
+      Uri.parse(baseUrl),
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer $token", // ✅ ajout du token
+      },
     );
 
-    final data = jsonDecode(res.body);
-    return List<Stock>.from(data.map((e) => Stock.fromJson(e)));
+    if (res.statusCode == 200) {
+      final body = jsonDecode(res.body);
+      if (body is List) {
+        return body.map((e) => Stock.fromJson(e)).toList();
+      }
+      throw Exception("Format inattendu pour getStocks");
+    } else {
+      throw Exception("Erreur lors du chargement des stocks");
+    }
   }
 
-  static Future<void> addStock(Map data) async {
+  // ✅ Récupérer les stocks par exploitation
+  static Future<List<Stock>> getStocksByExpl(int code_expl, String token) async {
+    print("TOKEN ENVOYE=$token");
+    final res = await http.get(
+      Uri.parse("$baseUrl/expl/$code_expl"),
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer $token", // ✅ ajout du token
+      },
+    );
+    print("REPONSE=${res.body}");
 
-    await http.post(Uri.parse(baseUrl),
-
-        headers: {"Content-Type": "application/json"},
-
-        body: jsonEncode(data));
-
+    if (res.statusCode == 200) {
+      final body = jsonDecode(res.body);
+      if (body is List) {
+        return body.map((e) => Stock.fromJson(e)).toList();
+      }
+      if (body is Map && body.containsKey("stocks")) {
+        final List<dynamic> data = body["stocks"];
+        return data.map((e) => Stock.fromJson(e)).toList();
+      }
+      throw Exception("Format inattendu pour getStocksByExpl");
+    } else {
+      throw Exception("Erreur lors du chargement des stocks par exploitation");
+    }
   }
 
-  static Future<void> entree(String id_stock, int quantite) async {
+  // ✅ Ajouter un stock
+  static Future<void> addStock(Map<String, dynamic> data, String token) async {
+    final res = await http.post(
+      Uri.parse(baseUrl),
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer $token", // ✅ ajout du token
+      },
+      body: jsonEncode(data),
+    );
 
-    await http.post(Uri.parse("$baseUrl/entree/$id_stock"),
-
-        headers: {"Content-Type": "application/json"},
-
-        body: jsonEncode({"quantite": quantite}));
-
+    // ✅ Accepter 200 (OK) et 201 (Created)
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception("Erreur lors de l'ajout du stock");
+    }
   }
 
-  static Future<void> sortie(String id_stock, int quantite) async {
+  // ✅ Entrée de stock
+  static Future<void> entree(String id_stock, int quantite, String token) async {
+    final res = await http.post(
+      Uri.parse("$baseUrl/entree/$id_stock"),
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer $token", // ✅ ajout du token
+      },
+      body: jsonEncode({"quantite": quantite}),
+    );
 
-    await http.post(Uri.parse("$baseUrl/sortie/$id_stock"),
-
-        headers: {"Content-Type": "application/json"},
-
-        body: jsonEncode({"quantite": quantite}));
-
+    if (res.statusCode != 200) {
+      throw Exception("Erreur lors de l'entrée du stock");
+    }
   }
 
+  // ✅ Sortie de stock
+  static Future<void> sortie(String id_stock, int quantite, String token) async {
+    final res = await http.post(
+      Uri.parse("$baseUrl/sortie/$id_stock"),
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer $token", // ✅ ajout du token
+      },
+      body: jsonEncode({"quantite": quantite}),
+    );
 
+    if (res.statusCode != 200) {
+      throw Exception("Erreur lors de la sortie du stock");
+    }
+  }
 }

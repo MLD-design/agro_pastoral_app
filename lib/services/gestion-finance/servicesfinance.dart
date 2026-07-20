@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class FinanceService {
-  static const baseUrl = "http://192.168.1.16:3000/api/finance";
+  static const baseUrl = "http://192.168.1.200:3000/api/finance";
 
   static Future addDepense(Map data) async {
     await http.post(
@@ -26,13 +26,13 @@ class FinanceService {
     return jsonDecode(res.body);
   }
 
-  static Future<List> getRecettes(int codeExpl) async {
+  static Future<List> getRecettes(int codeExpl, ) async {
     final res =
     await http.get(Uri.parse("$baseUrl/recettes/$codeExpl"));
     return jsonDecode(res.body);
   }
 
-  static Future<Map> getRentabilite(int codeExpl) async {
+  static Future<Map> getRentabilite(int codeExpl, ) async {
     final res =
     await http.get(Uri.parse("$baseUrl/rentabilite/$codeExpl"));
     return jsonDecode(res.body);

@@ -1,159 +1,172 @@
 import 'dart:io';
-import 'package:agro_pastoral_app/models/gestion-compte/modeluser.dart';
 import 'package:flutter/material.dart';
 import '../../models/gestion-stock/modelstock.dart';
-import '../../models/gestion-exploitation/modelexploitation.dart';
 import '../../services/gestion-stock/servicesstock.dart';
-import '../../services/gestion-exploitation/servicesexploitation.dart';
+import '../../models/gestion-compte/modeluser.dart';
+import '../gestion-personnel/vuconge.dart'; // Import ajouté
 import 'vuformulaireaddstock.dart';
 
 class StockPage extends StatefulWidget {
-  const StockPage({super.key, required User user});
+  final User user;
+  const StockPage({super.key, required this.user});
 
   @override
   State<StockPage> createState() => _StockPageState();
 }
 
 class _StockPageState extends State<StockPage> {
-  List<Stock> stocks = [];
-  List<Exploitation> exploitations = [];
-  int? selectedExpl;
-  final exploitationService = ExploitationService();
+  List<Stock> allStocks = [];
+  List<Stock> displayedStocks = [];
+  bool isLoading = true;
+  String searchQuery = "";
 
   @override
   void initState() {
     super.initState();
-    loadExploitations();
-  }
-
-  Future<void> loadExploitations() async {
-    exploitations = await exploitationService.getAll();
-    setState(() {});
+    loadStocks();
   }
 
   Future<void> loadStocks() async {
-    if (selectedExpl == null) return;
-    stocks = await StockService.getStocksByExpl(selectedExpl!);
-    setState(() {});
-  }
-
-  ImageProvider getImage(Stock s) {
-    if (s.imagePath != null && s.imagePath!.isNotEmpty) {
-      return FileImage(File(s.imagePath!));
+    if (!mounted) return;
+    setState(() => isLoading = true);
+    try {
+      final data = await StockService.getStocksByExpl(widget.user.code_expl, widget.user.token);
+      if (mounted) {
+        setState(() {
+          allStocks = data;
+          _filterStocks(searchQuery);
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur : $e")));
+      }
     }
-    return const AssetImage("assets/images/default.png");
   }
 
-  void showDialogMouvement(Stock s, bool entree) {
-    final controller = TextEditingController();
+  void _confirmLogout() {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(entree ? "📈 Entrée Stock" : "📉 Sortie Stock"),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          decoration: InputDecoration(
-            labelText: "Quantité en ${s.unite}",
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        ),
+        title: const Text("Déconnexion"),
+        content: const Text("Souhaitez-vous fermer votre session ?"),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Annuler")),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("ANNULER", style: TextStyle(color: Colors.grey))),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: entree ? Colors.green : Colors.red),
-            onPressed: () async {
-              if (controller.text.isEmpty) return;
-              int qte = int.parse(controller.text);
-              entree ? await StockService.entree(s.id_stock, qte) : await StockService.sortie(s.id_stock, qte);
-              Navigator.pop(context);
-              await loadStocks();
-            },
-            child: const Text("Valider", style: TextStyle(color: Colors.white)),
-          )
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+            onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false),
+            child: const Text("QUITTER", style: TextStyle(color: Colors.white)),
+          ),
         ],
       ),
     );
   }
 
-  Widget buildGrid(String type) {
-    final filtered = stocks.where((s) => s.type == type).toList();
-    if (filtered.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.inventory_2_outlined, size: 80, color: Colors.grey[300]),
-            const Text("Aucun article dans cette catégorie", style: TextStyle(color: Colors.grey)),
-          ],
-        ),
-      );
-    }
-
-    return GridView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: filtered.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
-        childAspectRatio: 0.75,
-      ),
-      itemBuilder: (_, i) {
-        final s = filtered[i];
-        bool isLow = s.quantite <= s.seuilAlerte;
-        return _buildStockCard(s, isLow);
-      },
-    );
+  void _filterStocks(String query) {
+    setState(() {
+      searchQuery = query;
+      displayedStocks = allStocks.where((s) => s.nom.toLowerCase().contains(query.toLowerCase())).toList();
+    });
   }
 
-  Widget _buildStockCard(Stock s, bool isLow) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 5))],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: Column(
+  @override
+  Widget build(BuildContext context) {
+    int alertCount = allStocks.where((s) => s.quantite <= s.seuilAlerte).length;
+
+    return DefaultTabController(
+      length: 4,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAF9), // Couleur page Personnel
+        appBar: AppBar(
+          elevation: 0,
+          backgroundColor: const Color(0xFF1B4332), // Couleur page Personnel
+          leading: IconButton(
+            icon: const Icon(Icons.power_settings_new, color: Colors.white70),
+            onPressed: _confirmLogout,
+          ),
+          title: const Text("GESTION STOCKS", style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.white, fontSize: 18)),
+          centerTitle: true,
+          actions: [
+            // 🔴 AJOUT DU MODULE CONGÉ
+            IconButton(
+              icon: const Icon(Icons.event_available, color: Colors.white),
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CongePage(user: widget.user))),
+            ),
+            IconButton(onPressed: loadStocks, icon: const Icon(Icons.refresh, color: Colors.white)),
+            const SizedBox(width: 8),
+          ],
+        ),
+        body: Column(
           children: [
+            _buildHeaderDashboard(alertCount),
+            _buildTabBarHeader(),
             Expanded(
-              child: Stack(
-                fit: StackFit.expand,
+              child: isLoading
+                  ? const Center(child: CircularProgressIndicator(color: Color(0xFF1B4332)))
+                  : TabBarView(
                 children: [
-                  Image(image: getImage(s), fit: BoxFit.cover),
-                  if (isLow) Container(color: Colors.red.withOpacity(0.1)),
-                  Positioned(
-                    top: 8, right: 8,
-                    child: isLow
-                        ? const CircleAvatar(backgroundColor: Colors.red, radius: 12, child: Icon(Icons.priority_high, size: 15, color: Colors.white))
-                        : Container(),
-                  ),
+                  _buildGrid("intrant"), _buildGrid("aliment"),
+                  _buildGrid("medicament"), _buildGrid("equipement"),
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.all(10),
-              child: Column(
-                children: [
-                  Text(s.nom, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), maxLines: 1),
-                  const SizedBox(height: 4),
-                  Text(
-                    "${s.quantite} ${s.unite}",
-                    style: TextStyle(color: isLow ? Colors.red : Colors.green[700], fontWeight: FontWeight.w900, fontSize: 16),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _actionButton(Icons.remove, Colors.red, () => showDialogMouvement(s, false)),
-                      _actionButton(Icons.add, Colors.green, () => showDialogMouvement(s, true)),
-                    ],
-                  )
-                ],
-              ),
+          ],
+        ),
+        floatingActionButton: FloatingActionButton.extended(
+          backgroundColor: const Color(0xFF1B4332), // Couleur page Personnel
+          onPressed: () async {
+            final res = await Navigator.push(context, MaterialPageRoute(builder: (_) => AddStockPage(user: widget.user)));
+            if (res == true) loadStocks();
+          },
+          label: const Text("NOUVEAU", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          icon: const Icon(Icons.add_box_rounded, color: Colors.white),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeaderDashboard(int alertCount) {
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        color: Color(0xFF1B4332), // Couleur page Personnel
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(30)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 25),
+      child: Column(
+        children: [
+          _buildSearchField(),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              _infoMiniCard("Mes Produits", "${allStocks.length}", Icons.inventory_2),
+              const SizedBox(width: 15),
+              _infoMiniCard("Alertes", "$alertCount", Icons.warning_amber_rounded, color: alertCount > 0 ? Colors.orangeAccent : Colors.white),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoMiniCard(String title, String value, IconData icon, {Color color = Colors.white}) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), borderRadius: BorderRadius.circular(15)),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 18)),
+                Text(title, style: const TextStyle(color: Colors.white60, fontSize: 11)),
+              ],
             )
           ],
         ),
@@ -161,99 +174,71 @@ class _StockPageState extends State<StockPage> {
     );
   }
 
-  Widget _actionButton(IconData icon, Color color, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-        child: Icon(icon, color: color, size: 20),
+  Widget _buildSearchField() {
+    return TextField(
+      onChanged: _filterStocks,
+      decoration: InputDecoration(
+        hintText: "Chercher dans mon stock...",
+        prefixIcon: const Icon(Icons.search, color: Color(0xFF1B4332)),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(vertical: 0),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    int alertCount = stocks.where((s) => s.quantite <= s.seuilAlerte).length;
-    return DefaultTabController(
-      length: 4,
-      child: Scaffold(
-        backgroundColor: const Color(0xFFF8F9FA),
-        appBar: AppBar(
-          elevation: 0,
-          backgroundColor: const Color(0xFF1B5E20),
-          title: const Text("Gestion des Stocks", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-          actions: [
-            if (alertCount > 0)
-              Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: Center(
-                  child: Badge(
-                    label: Text("$alertCount"),
-                    child: const Icon(Icons.notifications, color: Colors.white),
-                  ),
-                ),
-              ),
-          ],
-          bottom: const TabBar(
-            isScrollable: true,
-            indicatorColor: Colors.orangeAccent,
-            indicatorWeight: 3,
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.white70,
-            tabs: [
-              Tab(text: "Intrants"), Tab(text: "Aliments"),
-              Tab(text: "Médicaments"), Tab(text: "Équipements"),
-            ],
-          ),
-        ),
-        body: Column(
-          children: [
-            _buildExploitationSelector(),
-            Expanded(
-              child: selectedExpl == null
-                  ? const Center(child: Text("Sélectionnez une exploitation pour voir le stock"))
-                  : TabBarView(
-                children: [
-                  buildGrid("intrant"), buildGrid("aliment"),
-                  buildGrid("medicament"), buildGrid("equipement"),
-                ],
-              ),
-            ),
-          ],
-        ),
-        floatingActionButton: FloatingActionButton.extended(
-          backgroundColor: const Color(0xFF1B5E20),
-          onPressed: () async {
-            if (selectedExpl == null) return;
-            final res = await Navigator.push(context, MaterialPageRoute(builder: (_) => AddStockPage()));
-            if (res == true) loadStocks();
-          },
-          label: const Text("Ajouter", style: TextStyle(color: Colors.white)),
-          icon: const Icon(Icons.add, color: Colors.white),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildExploitationSelector() {
+  Widget _buildTabBarHeader() {
     return Container(
-      padding: const EdgeInsets.all(16),
-      color: Colors.white,
-      child: DropdownButtonFormField<int>(
-        value: selectedExpl,
-        decoration: InputDecoration(
-          prefixIcon: const Icon(Icons.business),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
-        ),
-        hint: const Text("Choisir une exploitation"),
-        items: exploitations.map((e) => DropdownMenuItem(value: e.code_expl, child: Text(e.nom_expl))).toList(),
-        onChanged: (value) async {
-          setState(() => selectedExpl = value);
-          await loadStocks();
-        },
+      margin: const EdgeInsets.symmetric(vertical: 10),
+      child: const TabBar(
+        isScrollable: true,
+        labelColor: Color(0xFF1B4332), // Couleur page Personnel
+        unselectedLabelColor: Colors.grey,
+        indicatorColor: Color(0xFF1B4332),
+        labelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+        tabs: [
+          Tab(text: "📦 Intrants"),
+          Tab(text: "🌾 Aliments"),
+          Tab(text: "💊 Médicaments"),
+          Tab(text: "🛠 Équipements"),
+        ],
       ),
     );
   }
+
+  Widget _buildGrid(String type) {
+    final filtered = displayedStocks.where((s) => s.type == type).toList();
+    if (filtered.isEmpty) return _buildEmptyState();
+    return GridView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: filtered.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 16, mainAxisSpacing: 16, childAspectRatio: 0.65),
+      itemBuilder: (_, i) => _buildStockCard(filtered[i]),
+    );
+  }
+
+  Widget _buildStockCard(Stock s) {
+    bool isLow = s.quantite <= s.seuilAlerte;
+    return Container(
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 5))]),
+      child: Column(
+        children: [
+          Expanded(flex: 4, child: Stack(fit: StackFit.expand, children: [ClipRRect(borderRadius: const BorderRadius.vertical(top: Radius.circular(20)), child: s.imagePath != null && File(s.imagePath!).existsSync() ? Image.file(File(s.imagePath!), fit: BoxFit.cover) : Container(color: const Color(0xFFF1F8E9), child: Icon(Icons.inventory_2_outlined, color: Colors.green.shade200, size: 50)))]),),
+          Expanded(flex: 3, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), child: Column(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(children: [Text(s.nom, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis), const SizedBox(height: 4), Row(mainAxisAlignment: MainAxisAlignment.center, children: [Text("${s.quantite}", style: TextStyle(color: isLow ? Colors.red : Colors.black, fontWeight: FontWeight.w900, fontSize: 18)), const SizedBox(width: 4), Text(s.unite, style: const TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold))])]), Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [_actionBtn(Icons.remove, Colors.orange, () => _showMouvement(s, false)), _actionBtn(Icons.add, Colors.green, () => _showMouvement(s, true))])]))),
+        ],
+      ),
+    );
+  }
+
+  Widget _actionBtn(IconData icon, Color color, VoidCallback onTap) {
+    return InkWell(onTap: onTap, child: Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)), child: Icon(icon, color: color, size: 20)));
+  }
+
+  void _showMouvement(Stock s, bool entree) {
+    final controller = TextEditingController();
+    showModalBottomSheet(context: context, isScrollControlled: true, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))), builder: (_) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 25, right: 25, top: 20), child: Column(mainAxisSize: MainAxisSize.min, children: [Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10))), const SizedBox(height: 20), Text(entree ? "ENTRÉE DE STOCK" : "SORTIE DE STOCK", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: entree ? Colors.green : Colors.orange)), const SizedBox(height: 25), TextField(controller: controller, keyboardType: TextInputType.number, textAlign: TextAlign.center, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold), autofocus: true, decoration: InputDecoration(hintText: "Quantité", suffixText: s.unite, filled: true, fillColor: Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none))), const SizedBox(height: 25), SizedBox(width: double.infinity, height: 50, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1B4332), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), onPressed: () async { if (controller.text.isEmpty) return; int qte = int.parse(controller.text); entree ? await StockService.entree(s.id_stock, qte, widget.user.token) : await StockService.sortie(s.id_stock, qte, widget.user.token); Navigator.pop(context); loadStocks(); }, child: const Text("VALIDER", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)))), const SizedBox(height: 25)])));
+  }
+
+  Widget _buildEmptyState() => Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.inventory_2_outlined, size: 60, color: Colors.grey.shade300), const SizedBox(height: 10), const Text("Aucun produit trouvé", style: TextStyle(color: Colors.grey))]));
 }

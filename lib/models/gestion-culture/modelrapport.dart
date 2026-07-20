@@ -1,57 +1,68 @@
+// lib/models/gestion-culture/modelrapport.dart
 class RapportCulture {
+  final String nomCampagne;
+  final String nomParcelle;
 
-  final String parcelle;
+  final bool semisValide;
+  final String? dateSemis;
+  final String? variete;
+  final double quantiteSemee;
 
-  final String campagne;
+  final bool leveeValidee;
+  final String? tauxLevee;
 
-  final int quantiteSemence;
+  final int nombreObservations;
+
+  final bool recolteCloturee;
+  final String? dateCloture;
+  final int nombrePassagesRecolte;
+  final double quantiteTotaleRecoltee;
+  final String? uniteRecolte;
 
   final int nombreTraitements;
-
-  final int nombreRecoltes;
-
-  final String statutRecolte;
-
-  final List<dynamic> notesAudio;
+  final String statutGlobal; // 'EN_COURS' | 'RECOLTEE' | 'RETARD'
 
   RapportCulture({
-
-    required this.parcelle,
-
-    required this.campagne,
-
-    required this.quantiteSemence,
-
+    required this.nomCampagne,
+    required this.nomParcelle,
+    required this.semisValide,
+    this.dateSemis,
+    this.variete,
+    required this.quantiteSemee,
+    required this.leveeValidee,
+    this.tauxLevee,
+    required this.nombreObservations,
+    required this.recolteCloturee,
+    this.dateCloture,
+    required this.nombrePassagesRecolte,
+    required this.quantiteTotaleRecoltee,
+    this.uniteRecolte,
     required this.nombreTraitements,
-
-    required this.nombreRecoltes,
-
-    required this.statutRecolte,
-
-    required this.notesAudio,
-
+    required this.statutGlobal,
   });
 
   factory RapportCulture.fromJson(Map<String, dynamic> json) {
+    final semis = json['semis'] ?? {};
+    final levee = json['levee'] ?? {};
+    final recolte = json['recolte'] ?? {};
 
     return RapportCulture(
-
-      parcelle: json['parcelle']['nom_cham'],
-
-      campagne: json['campagne']['nom_camp'],
-
-      quantiteSemence: json['quantite_semence'],
-
-      nombreTraitements: json['nombre_traitements'],
-
-      nombreRecoltes: json['nombre_recoltes'],
-
-      statutRecolte: json['statut_recolte'],
-
-      notesAudio: json['notes_audio'] ?? [],
-
+      nomCampagne: json['campagne']?['nom_camp']?.toString() ?? '',
+      nomParcelle: json['parcelle']?['nom_cham']?.toString() ?? '',
+      semisValide: semis['valide'] == true,
+      dateSemis: semis['date']?.toString(),
+      variete: semis['variete']?.toString(),
+      quantiteSemee: (semis['quantite_semee'] as num? ?? 0).toDouble(),
+      leveeValidee: levee['valide'] == true,
+      tauxLevee: levee['taux_levee']?.toString(),
+      nombreObservations: json['nombre_observations'] is int ? json['nombre_observations'] : 0,
+      recolteCloturee: recolte['cloturee'] == true,
+      dateCloture: recolte['date_cloture']?.toString(),
+      nombrePassagesRecolte: recolte['nombre_passages'] is int ? recolte['nombre_passages'] : 0,
+      quantiteTotaleRecoltee: (recolte['quantite_totale'] as num? ?? 0).toDouble(),
+      uniteRecolte: recolte['unite']?.toString(),
+      nombreTraitements: json['nombre_traitements'] is int ? json['nombre_traitements'] : 0,
+      statutGlobal: json['statut_global']?.toString() ?? 'EN_COURS',
     );
-
   }
-
 }

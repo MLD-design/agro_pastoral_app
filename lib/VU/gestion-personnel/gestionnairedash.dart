@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:provider/provider.dart';
 import '../../../../models/gestion-compte/modeluser.dart';
-// Importe tes pages ici
+import '../../../providers/selectedexploitationprovider.dart';
+import '../../services/gestion-alerte/servicesalerte.dart';
+import '../../services/gestion-exploitation/servicesexploitation.dart';
+import '../../services/gestion-personnel/servicespersonnel.dart';
 import 'Personnel.dart';
-import '../gestion-alerte/alerte.dart'; // Ta page d'alerte modifiée précédemment
-// Importe ta page de rapports/stats si elle existe
+import '../gestion-alerte/alerte.dart';
 
 class GestionnaireDashboard extends StatefulWidget {
   final User user;
@@ -15,73 +18,216 @@ class GestionnaireDashboard extends StatefulWidget {
 }
 
 class _GestionnaireDashboardState extends State<GestionnaireDashboard> {
+  final exploitationService = ExploitationService();
+  final personnelService = PersonnelService();
+  final alerteService = AlerteService();
+
+  String nomExploitation = "";
+  int nbPersonnel = 0;
+  int nbAlertes = 0;
+  bool isLoading = true;
+  int? _lastCheckedExploitationId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    final providerExp = Provider.of<SelectedExploitationProvider>(context).exploitation;
+    final int? targetCodeExpl = providerExp?.code_expl ?? widget.user.code_expl;
+
+    if (targetCodeExpl != null && _lastCheckedExploitationId != targetCodeExpl) {
+      _lastCheckedExploitationId = targetCodeExpl;
+
+      if (providerExp != null) {
+        setState(() => nomExploitation = providerExp.nom_expl);
+      }
+
+      _loadDashboardData(targetCodeExpl);
+    }
+  }
+
+  Future<void> _loadDashboardData(int codeExpl) async {
+    if (!mounted) return;
+    setState(() => isLoading = true);
+
+    try {
+      if (nomExploitation == "Chargement...") {
+        final domaines = await exploitationService.getAll();
+        final exploitationActuelle = domaines.firstWhere(
+              (e) => e.code_expl == codeExpl,
+          orElse: () => domaines.first,
+        );
+        if (mounted) {
+          setState(() => nomExploitation = exploitationActuelle.nom_expl);
+        }
+      }
+
+      final mutualData = await Future.wait([
+        personnelService.getByExploitation(codeExpl, widget.user.token),
+        alerteService.getByExploitation(codeExpl),
+      ]);
+
+      if (mounted) {
+        setState(() {
+          nbPersonnel = (mutualData[0] as List).length;
+          nbAlertes = (mutualData[1] as List).length;
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("🔴 ERREUR DASHBOARD API : $e");
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+          if (nomExploitation == "Chargement...") {
+            nomExploitation = "Exploitation Spécifiée";
+          }
+        });
+      }
+    }
+  }
+
+  // --- LOGIQUE DE DÉCONNEXION RÉINTEGRÉE ---
+  void _handleLogout() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.logout_rounded, color: Colors.redAccent),
+            SizedBox(width: 10),
+            Text("Déconnexion"),
+          ],
+        ),
+        content: const Text("Voulez-vous vraiment quitter l'application ?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("ANNULER", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () {
+              // Nettoie l'historique de navigation et redirige vers l'authentification
+              Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+            },
+            child: const Text("DÉCONNEXION", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final providerExp = Provider.of<SelectedExploitationProvider>(context).exploitation;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF0F4F2),
       appBar: AppBar(
         elevation: 0,
         backgroundColor: const Color(0xFF1B4332),
-        title: const Text("FARMFLOW MANAGEMENT",
-            style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2, fontSize: 16)),
+        title: const Text(
+          "FARMFLOW MANAGEMENT",
+          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2, fontSize: 16, color: Colors.white),
+        ),
+        centerTitle: true,
+        automaticallyImplyLeading: false,
         actions: [
+          // 🔴 BOUTON DÉCONNEXION PLACÉ À GAUCHE DE L'AVATAR
+          IconButton(
+            tooltip: "Se déconnecter",
+            icon: const Icon(Icons.power_settings_new_rounded, color: Colors.redAccent, size: 22),
+            onPressed: _handleLogout,
+          ),
+          const SizedBox(width: 5),
           CircleAvatar(
             backgroundColor: Colors.white24,
-            child: Text(widget.user.username[0].toUpperCase(), style: const TextStyle(color: Colors.white)),
+            child: Text(
+              widget.user.username.isNotEmpty ? widget.user.username[0].toUpperCase() : "U",
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
           ),
           const SizedBox(width: 15),
         ],
       ),
-      drawer: _buildDrawer(context), // Barre de navigation latérale
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildWelcomeHeader(),
-            const SizedBox(height: 25),
-            const Text("Aperçu Rapide", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B4332))),
-            const SizedBox(height: 15),
-            _buildQuickStats(),
-            const SizedBox(height: 25),
-            const Text("Actions Principales", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B4332))),
-            const SizedBox(height: 15),
-            _buildActionGrid(context),
-          ],
+      body: RefreshIndicator(
+        color: const Color(0xFF1B4332),
+        onRefresh: () async {
+          final int? activeCode = providerExp?.code_expl ?? widget.user.code_expl;
+          if (activeCode != null) {
+            await _loadDashboardData(activeCode);
+          }
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildWelcomeHeader(nomExploitation),
+              const SizedBox(height: 25),
+              const Text("Aperçu Rapide", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B4332))),
+              const SizedBox(height: 15),
+              _buildQuickStats(),
+              const SizedBox(height: 25),
+              const Text("Actions Principales", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B4332))),
+              const SizedBox(height: 15),
+              _buildActionGrid(context, providerExp?.code_expl ?? widget.user.code_expl),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // --- HEADER DE BIENVENUE ---
-  Widget _buildWelcomeHeader() {
+  Widget _buildWelcomeHeader(String nomExploitation) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(25),
       decoration: BoxDecoration(
         gradient: const LinearGradient(colors: [Color(0xFF1B4332), Color(0xFF2D6A4F)]),
         borderRadius: BorderRadius.circular(30),
+        boxShadow: [
+          BoxShadow(color: const Color(0xFF1B4332).withOpacity(0.15), blurRadius: 15, offset: const Offset(0, 8))
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text("Bonjour, ${widget.user.username} 👋",
-              style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+          Text(
+            "Bonjour, ${widget.user.username} 👋",
+            style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
-          const Text("Voici l'état actuel de votre exploitation aujourd'hui.",
-              style: TextStyle(color: Colors.white70, fontSize: 14)),
+          Row(
+            children: [
+              const Icon(Icons.gite_rounded, color: Colors.white70, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  "Exploitation : $nomExploitation",
+                  style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w500),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  // --- STATISTIQUES RAPIDES ---
   Widget _buildQuickStats() {
     return Row(
       children: [
-        _smallStatCard("Personnel", "12", Icons.people, Colors.blue),
+        _smallStatCard("Personnel", isLoading ? "..." : "$nbPersonnel", Icons.people, Colors.blue),
         const SizedBox(width: 15),
-        _smallStatCard("Alertes", "3", Icons.warning_amber_rounded, Colors.orange),
+        _smallStatCard("Alertes", isLoading ? "..." : "$nbAlertes", Icons.warning_amber_rounded, Colors.orange),
       ],
     );
   }
@@ -99,12 +245,21 @@ class _GestionnaireDashboardState extends State<GestionnaireDashboard> {
           children: [
             Icon(icon, color: color, size: 30),
             const SizedBox(width: 15),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    value,
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF081C15)),
+                  ),
+                  Text(
+                    title,
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             )
           ],
         ),
@@ -112,8 +267,7 @@ class _GestionnaireDashboardState extends State<GestionnaireDashboard> {
     );
   }
 
-  // --- GRILLE D'ACTIONS (Navigation vers les 3 fonctionnalités) ---
-  Widget _buildActionGrid(BuildContext context) {
+  Widget _buildActionGrid(BuildContext context, int? currentCodeExpl) {
     return GridView.count(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -128,7 +282,10 @@ class _GestionnaireDashboardState extends State<GestionnaireDashboard> {
           "Gérer vos équipes",
           FontAwesomeIcons.usersGear,
           Colors.indigo,
-              () => Navigator.push(context, MaterialPageRoute(builder: (_) => PersonnelPage(user: widget.user))),
+              () async {
+            await Navigator.push(context, MaterialPageRoute(builder: (_) => PersonnelPage(user: widget.user)));
+            if (currentCodeExpl != null) _loadDashboardData(currentCodeExpl);
+          },
         ),
         _actionCard(
           context,
@@ -136,7 +293,10 @@ class _GestionnaireDashboardState extends State<GestionnaireDashboard> {
           "Monitoring Live",
           FontAwesomeIcons.warning,
           Colors.redAccent,
-              () => Navigator.push(context, MaterialPageRoute(builder: (_) => AlertePage(user: widget.user))),
+              () async {
+            await Navigator.push(context, MaterialPageRoute(builder: (_) => AlertePage(user: widget.user)));
+            if (currentCodeExpl != null) _loadDashboardData(currentCodeExpl);
+          },
         ),
         _actionCard(
           context,
@@ -144,15 +304,7 @@ class _GestionnaireDashboardState extends State<GestionnaireDashboard> {
           "Rapports & Data",
           FontAwesomeIcons.chartPie,
           Colors.teal,
-              () { /* Navigation vers StatsPage */ },
-        ),
-        _actionCard(
-          context,
-          "Paramètres",
-          "Configuration",
-          FontAwesomeIcons.gears,
-          Colors.blueGrey,
-              () { /* Navigation vers Paramètres */ },
+              () {},
         ),
       ],
     );
@@ -161,6 +313,7 @@ class _GestionnaireDashboardState extends State<GestionnaireDashboard> {
   Widget _actionCard(BuildContext context, String title, String sub, IconData icon, Color color, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(25),
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
@@ -173,59 +326,12 @@ class _GestionnaireDashboardState extends State<GestionnaireDashboard> {
           children: [
             Icon(icon, color: color, size: 35),
             const SizedBox(height: 12),
-            Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF081C15))),
             const SizedBox(height: 4),
             Text(sub, textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey, fontSize: 10)),
           ],
         ),
       ),
-    );
-  }
-
-  // --- MENU DE NAVIGATION LATÉRAL (DRAWER) ---
-  Widget _buildDrawer(BuildContext context) {
-    return Drawer(
-      child: Container(
-        color: const Color(0xFFF0F4F2),
-        child: Column(
-          children: [
-            UserAccountsDrawerHeader(
-              decoration: const BoxDecoration(color: Color(0xFF1B4332)),
-              accountName: Text(widget.user.username, style: const TextStyle(fontWeight: FontWeight.bold)),
-              accountEmail: Text("Gestionnaire - Code: ${widget.user.code_expl}"),
-              currentAccountPicture: CircleAvatar(
-                backgroundColor: Colors.white,
-                child: Text(widget.user.username[0], style: const TextStyle(fontSize: 30, color: Color(0xFF1B4332))),
-              ),
-            ),
-            _drawerItem(Icons.dashboard_rounded, "Dashboard", () => Navigator.pop(context)),
-            _drawerItem(Icons.people_alt_rounded, "Gestion Personnel", () {
-              Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (_) => PersonnelPage(user: widget.user)));
-            }),
-            _drawerItem(Icons.notification_important_rounded, "Alertes & Monitoring", () {
-              Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (_) => AlertePage(user: widget.user)));
-            }),
-            _drawerItem(Icons.bar_chart_rounded, "Rapports & Stats", () {
-              Navigator.pop(context);
-              // Navigation stats
-            }),
-            const Spacer(),
-            const Divider(),
-            _drawerItem(Icons.logout_rounded, "Déconnexion", () => Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false), color: Colors.red),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _drawerItem(IconData icon, String title, VoidCallback onTap, {Color color = const Color(0xFF1B4332)}) {
-    return ListTile(
-      leading: Icon(icon, color: color),
-      title: Text(title, style: TextStyle(color: color, fontWeight: FontWeight.w600)),
-      onTap: onTap,
     );
   }
 }

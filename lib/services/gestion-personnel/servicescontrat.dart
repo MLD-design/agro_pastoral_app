@@ -4,9 +4,9 @@ import 'package:http/http.dart' as http;
 import '../../models/gestion-personnel/modelcontrat.dart';
 
 class ContratService {
-  final String base = "http://192.168.1.16:3000/api/contrats";
+  final String base = "http://192.168.1.200:3000/api/contrats";
 
-  Future<void> create(Contrat c, File file) async {
+  Future<void> create(Contrat c, File file, String token) async {
     var request = http.MultipartRequest('POST', Uri.parse(base));
     request.fields['employeId'] = c.employeId.toString();
     request.fields['type'] = c.type;
@@ -24,7 +24,7 @@ class ContratService {
     return data.map<Contrat>((e) => Contrat.fromJson(e)).toList();
   }
 
-  Future<List<Contrat>> getByExploitation(int codeExpl) async {
+  Future<List<Contrat>> getByExploitation(int codeExpl, String token) async {
     final res = await http.get(Uri.parse("$base/$codeExpl"));
     if (res.statusCode == 200) {
       final data = jsonDecode(res.body);

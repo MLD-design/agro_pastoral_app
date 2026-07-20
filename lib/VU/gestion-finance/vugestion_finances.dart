@@ -1,45 +1,64 @@
-import 'package:agro_pastoral_app/models/gestion-compte/modeluser.dart';
 import 'package:flutter/material.dart';
+import '../../models/gestion-compte/modeluser.dart';
 import '../../services/gestion-finance/servicesfinance.dart';
-import '../../services/gestion-exploitation/servicesexploitation.dart';
-import '../../models/gestion-exploitation/modelexploitation.dart';
+import '../gestion-personnel/vuconge.dart';
 
 class FinancePage extends StatefulWidget {
-  const FinancePage({super.key, required User user});
+  final User user;
+  const FinancePage({super.key, required this.user});
 
   @override
   State<FinancePage> createState() => _FinancePageState();
 }
 
 class _FinancePageState extends State<FinancePage> {
-  List<Exploitation> exploitations = [];
-  int? selectedExpl;
   List depenses = [];
   List recettes = [];
   Map rentabilite = {};
   String filtre = "all";
-  final exploitationService = ExploitationService();
 
   @override
   void initState() {
     super.initState();
-    loadExploitations();
+    loadData();
   }
 
-  Future loadExploitations() async {
-    exploitations = await exploitationService.getAll();
-    setState(() {});
+  // --- LOGIQUE DE DÉCONNEXION ---
+  void _handleLogout() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Déconnexion"),
+        content: const Text("Voulez-vous vraiment quitter l'application ?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("ANNULER", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () {
+              Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+            },
+            child: const Text("DÉCONNEXION", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future loadData() async {
-    if (selectedExpl == null) return;
-    depenses = await FinanceService.getDepenses(selectedExpl!);
-    recettes = await FinanceService.getRecettes(selectedExpl!);
-    rentabilite = await FinanceService.getRentabilite(selectedExpl!);
-    setState(() {});
+    depenses = await FinanceService.getDepenses(widget.user.code_expl);
+    recettes = await FinanceService.getRecettes(widget.user.code_expl);
+    rentabilite = await FinanceService.getRentabilite(widget.user.code_expl);
+    if (mounted) setState(() {});
   }
 
-  // --- DESIGN : CARTE DE SOLDE "GOLDEN AGRI" ---
+  // --- DESIGN : CARTE DE SOLDE ---
   Widget _buildPremiumBalanceCard() {
     return Container(
       width: double.infinity,
@@ -90,16 +109,31 @@ class _FinancePageState extends State<FinancePage> {
     );
   }
 
-  // --- DESIGN : ACTIONS RAPIDES STYLISÉES ---
+  // --- DESIGN : ACTIONS ---
   Widget _buildActionButtons() {
-    return Row(
+    return Column(
       children: [
-        Expanded(
-          child: _btnAction("RECETTE", Icons.add_circle, Colors.green, () => _showTransactionDialog(false)),
+        Row(
+          children: [
+            Expanded(child: _btnAction("RECETTE", Icons.add_circle, Colors.green, () => _showTransactionDialog(false))),
+            const SizedBox(width: 15),
+            Expanded(child: _btnAction("DÉPENSE", Icons.remove_circle, Colors.redAccent, () => _showTransactionDialog(true))),
+          ],
         ),
-        const SizedBox(width: 15),
-        Expanded(
-          child: _btnAction("DÉPENSE", Icons.remove_circle, Colors.redAccent, () => _showTransactionDialog(true)),
+        const SizedBox(height: 15),
+        // 🔴 BOUTON INTÉGRÉ POUR LE COMPTABLE (Accès à ses congés personnels)
+        _btnAction(
+            "DEMANDER / SUIVRE MES CONGÉS",
+            Icons.beach_access_rounded,
+            const Color(0xFF1B4332),
+                () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => CongePage(user: widget.user),
+                ),
+              );
+            }
         ),
       ],
     );
@@ -127,7 +161,7 @@ class _FinancePageState extends State<FinancePage> {
     );
   }
 
-  // --- DESIGN : MODAL DE SAISIE LUXE ---
+  // --- DESIGN : MODAL ---
   void _showTransactionDialog(bool isDepense) {
     final montantCtrl = TextEditingController();
     final textCtrl = TextEditingController();
@@ -154,11 +188,13 @@ class _FinancePageState extends State<FinancePage> {
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: isDepense ? Colors.red : Colors.green, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
                 onPressed: () async {
-                  if (selectedExpl == null) return;
-                  isDepense
-                      ? await FinanceService.addDepense({"libelle": textCtrl.text, "montant": int.parse(montantCtrl.text), "code_expl": selectedExpl})
-                      : await FinanceService.addRecette({"source": textCtrl.text, "montant": int.parse(montantCtrl.text), "code_expl": selectedExpl});
-                  Navigator.pop(context); loadData();
+                  if (isDepense) {
+                    await FinanceService.addDepense({"libelle": textCtrl.text, "montant": int.parse(montantCtrl.text), "code_expl": widget.user.code_expl});
+                  } else {
+                    await FinanceService.addRecette({"source": textCtrl.text, "montant": int.parse(montantCtrl.text), "code_expl": widget.user.code_expl});
+                  }
+                  Navigator.pop(context);
+                  loadData();
                 },
                 child: const Text("VALIDER LA TRANSACTION", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               ),
@@ -178,12 +214,13 @@ class _FinancePageState extends State<FinancePage> {
     );
   }
 
-  // --- DESIGN : HISTORIQUE ET FILTRES (FIX OVERFLOW) ---
+  // --- DESIGN : HISTORIQUE ---
   Widget _buildHistorySection() {
     List items = [];
     if (filtre == "all" || filtre == "depense") items.addAll(depenses.map((e) => {...e, "type": "depense"}));
     if (filtre == "all" || filtre == "recette") items.addAll(recettes.map((e) => {...e, "type": "recette"}));
-    items.sort((a, b) => b['date'].compareTo(a['date']));
+
+    items.sort((a, b) => (b['date'] ?? '').compareTo(a['date'] ?? ''));
 
     return Column(
       children: [
@@ -191,12 +228,9 @@ class _FinancePageState extends State<FinancePage> {
           children: [
             const Text("Historique", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const Spacer(),
-            // RÉSOLUTION DE L'OVERFLOW ICI
             SizedBox(
               height: 40,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                shrinkWrap: true,
+              child: Row(
                 children: [
                   _filterChip("Tous", "all"),
                   _filterChip("Dép.", "depense"),
@@ -207,6 +241,11 @@ class _FinancePageState extends State<FinancePage> {
           ],
         ),
         const SizedBox(height: 15),
+        if (items.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 20),
+            child: Text("Aucune transaction trouvée"),
+          ),
         ...items.map((item) => _buildTransactionTile(item)).toList(),
       ],
     );
@@ -230,13 +269,31 @@ class _FinancePageState extends State<FinancePage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10)]),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10)],
+      ),
       child: Row(
         children: [
-          CircleAvatar(backgroundColor: isDep ? Colors.red[50] : Colors.green[50], child: Icon(isDep ? Icons.upload : Icons.download, color: isDep ? Colors.red : Colors.green, size: 18)),
+          CircleAvatar(
+            backgroundColor: isDep ? Colors.red[50] : Colors.green[50],
+            child: Icon(isDep ? Icons.upload : Icons.download, color: isDep ? Colors.red : Colors.green, size: 18),
+          ),
           const SizedBox(width: 15),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(isDep ? item['libelle'] : item['source'], style: const TextStyle(fontWeight: FontWeight.bold)), Text(item['date'], style: TextStyle(fontSize: 11, color: Colors.grey[500]))])),
-          Text("${isDep ? '-' : '+'}${item['montant']} F", style: TextStyle(fontWeight: FontWeight.w900, color: isDep ? Colors.red : Colors.green, fontSize: 16)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(isDep ? item['libelle'] : item['source'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text(item['date'] ?? '', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+              ],
+            ),
+          ),
+          Text(
+            "${isDep ? '-' : '+'}${item['montant']} F",
+            style: TextStyle(fontWeight: FontWeight.w900, color: isDep ? Colors.red : Colors.green, fontSize: 16),
+          ),
         ],
       ),
     );
@@ -247,31 +304,32 @@ class _FinancePageState extends State<FinancePage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF3F7F5),
       appBar: AppBar(
-        elevation: 0, backgroundColor: Colors.transparent, foregroundColor: Colors.black,
-        title: const Text("Tableau de Bord Financier", style: TextStyle(fontWeight: FontWeight.w900)),
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.black,
+        title: const Text("Finance", style: TextStyle(fontWeight: FontWeight.w900)),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout_rounded, color: Colors.redAccent),
+            onPressed: _handleLogout,
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            // Sélecteur d'exploitation
-            DropdownButtonFormField(
-              decoration: _inputDecoration("Mon Exploitation", Icons.agriculture),
-              value: selectedExpl,
-              items: exploitations.map((e) => DropdownMenuItem(value: e.code_expl, child: Text(e.nom_expl))).toList(),
-              onChanged: (v) { setState(() => selectedExpl = v as int); loadData(); },
-            ),
-            const SizedBox(height: 25),
-            if (selectedExpl != null) ...[
+      body: RefreshIndicator(
+        onRefresh: loadData,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
               _buildPremiumBalanceCard(),
               const SizedBox(height: 25),
               _buildActionButtons(),
               const SizedBox(height: 35),
               _buildHistorySection(),
-            ] else
-              const Center(child: Padding(padding: EdgeInsets.all(40), child: Text("Sélectionnez une exploitation pour commencer"))),
-          ],
+            ],
+          ),
         ),
       ),
     );

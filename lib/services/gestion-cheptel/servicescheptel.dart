@@ -6,7 +6,7 @@ import '/models/gestion-cheptel/modelproduction.dart';
 import '/models/gestion-cheptel/modelmouvement.dart';
 
 class CheptelService {
-  final String baseUrl = "http://192.168.1.16:3000/s/api/cheptel";
+  final String baseUrl = "http://192.168.1.200:3000/s/api/cheptel";
 
   // ---------------- Animaux ----------------
   Future<List<Animal>> getAnimaux(int codeExpl) async {

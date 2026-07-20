@@ -2,22 +2,21 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../models/gestion-alerte/modelalerte.dart';
-import '../../models/gestion-exploitation/modelexploitation.dart';
+import '../../models/gestion-compte/modeluser.dart'; // Import du modèle User
 import '../../services/gestion-alerte/servicesalerte.dart';
-import '../../services/gestion-exploitation/servicesexploitation.dart';
 
 class AlertePage extends StatefulWidget {
+  final User user; // On récupère l'utilisateur connecté
+  const AlertePage({super.key, required this.user});
+
   @override
   State<AlertePage> createState() => _AlertePageState();
 }
 
 class _AlertePageState extends State<AlertePage> with SingleTickerProviderStateMixin {
   final service = AlerteService();
-  final exploitationService = ExploitationService();
-
   List<Alerte> alertes = [];
-  List<Exploitation> exploitations = [];
-  Exploitation? selected;
+  bool _isLoading = true;
   late TabController _tabController;
   Timer? refreshTimer;
 
@@ -25,8 +24,9 @@ class _AlertePageState extends State<AlertePage> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    loadExploitations();
-    refreshTimer = Timer.periodic(Duration(seconds: 10), (timer) => loadAlertes());
+    loadAlertes();
+    // Rafraîchissement automatique toutes le 10 secondes
+    refreshTimer = Timer.periodic(const Duration(seconds: 10), (timer) => loadAlertes());
   }
 
   @override
@@ -36,105 +36,113 @@ class _AlertePageState extends State<AlertePage> with SingleTickerProviderStateM
     super.dispose();
   }
 
-  void loadExploitations() async {
-    final data = await exploitationService.getAll();
-    setState(() => exploitations = data);
-  }
-
   void loadAlertes() async {
-    if (selected == null) return;
-    final data = await service.getByExploitation(selected!.code_expl);
-    setState(() => alertes = data);
+    // On utilise directement le code_expl de l'utilisateur connecté
+    final data = await service.getByExploitation(widget.user.code_expl);
+    if (mounted) {
+      setState(() {
+        alertes = data;
+        _isLoading = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Color(0xFFF8F9FA),
+      backgroundColor: const Color(0xFFF0F4F2),
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.white,
-        title: Text("Monitoring & Alertes", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        backgroundColor: const Color(0xFF1B4332),
+        title: Column(
+          children: [
+            const Text("MONITORING LIVE",
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 1.5, color: Colors.white70)),
+            Text("Exploitation : ${widget.user.code_expl}",
+                style: const TextStyle(fontSize: 12, color: Colors.white)),
+          ],
+        ),
         bottom: TabBar(
           controller: _tabController,
-          labelColor: Colors.green.shade700,
-          unselectedLabelColor: Colors.grey,
-          indicatorColor: Colors.green.shade700,
-          tabs: [
-            Tab(icon: Icon(Icons.notifications_active_outlined), text: "Alertes"),
-            Tab(icon: Icon(Icons.analytics_outlined), text: "Dashboard"),
+          indicatorColor: const Color(0xFF74C69D),
+          indicatorWeight: 3,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white54,
+          tabs: const [
+            Tab(icon: Icon(Icons.notifications_active), text: "Alertes"),
+            Tab(icon: Icon(Icons.insights), text: "Analyses"),
           ],
         ),
       ),
-      body: Column(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF1B4332)))
+          : TabBarView(
+        controller: _tabController,
         children: [
-          _buildExploitationSelector(),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildAlerteTab(),
-                _buildDashboardTab(),
-              ],
-            ),
-          ),
+          _buildAlerteTab(),
+          _buildDashboardTab(),
         ],
       ),
     );
   }
 
-  Widget _buildExploitationSelector() {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      color: Colors.white,
-      child: DropdownButtonFormField<Exploitation>(
-        value: selected,
-        decoration: InputDecoration(
-          labelText: "Exploitation active",
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          contentPadding: EdgeInsets.symmetric(horizontal: 12),
-        ),
-        items: exploitations.map((e) => DropdownMenuItem(value: e, child: Text(e.nom_expl))).toList(),
-        onChanged: (v) {
-          setState(() => selected = v);
-          loadAlertes();
-        },
-      ),
-    );
-  }
-
-  // --- ONGLET ALERTES ---
+  // --- ONGLET ALERTES (Design amélioré) ---
   Widget _buildAlerteTab() {
-    if (alertes.isEmpty) return Center(child: Text("Aucune alerte pour le moment"));
+    if (alertes.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.check_circle_outline, size: 80, color: Colors.green.withOpacity(0.3)),
+            const SizedBox(height: 16),
+            const Text("Tout est sous contrôle", style: TextStyle(color: Colors.grey, fontSize: 16)),
+          ],
+        ),
+      );
+    }
+
     return ListView.builder(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       itemCount: alertes.length,
       itemBuilder: (_, i) {
         final a = alertes[i];
-        bool isCritical = a.statut == "actif";
+        bool isActif = a.statut == "actif";
+
         return Container(
-          margin: EdgeInsets.only(bottom: 12),
+          margin: const EdgeInsets.only(bottom: 16),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 15, offset: const Offset(0, 5)),
+            ],
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: IntrinsicHeight(
-              child: Row(
-                children: [
-                  Container(width: 6, color: isCritical ? Colors.red : Colors.green),
-                  Expanded(
-                    child: ListTile(
-                      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      title: Text(a.message, style: TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text("${a.type.toUpperCase()} • Valeur: ${a.valeur} (Seuil: ${a.seuil})"),
-                      trailing: _buildActionIcon(a),
-                    ),
+          child: IntrinsicHeight(
+            child: Row(
+              children: [
+                Container(
+                  width: 8,
+                  decoration: BoxDecoration(
+                    color: isActif ? Colors.redAccent : Colors.greenAccent.shade700,
+                    borderRadius: const BorderRadius.only(topLeft: Radius.circular(20), bottomLeft: Radius.circular(20)),
                   ),
-                ],
-              ),
+                ),
+                Expanded(
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    title: Text(a.message, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    subtitle: Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Text(
+                        "${a.type.toUpperCase()}  •  Valeur: ${a.valeur} (Seuil: ${a.seuil})",
+                        style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                      ),
+                    ),
+                    trailing: _buildActionIcon(a),
+                  ),
+                ),
+              ],
             ),
           ),
         );
@@ -144,23 +152,29 @@ class _AlertePageState extends State<AlertePage> with SingleTickerProviderStateM
 
   Widget _buildActionIcon(Alerte a) {
     if (a.statut == "actif") {
-      return CircleAvatar(
-        backgroundColor: Colors.red.shade50,
-        child: IconButton(icon: Icon(Icons.check, color: Colors.red), onPressed: () async {
-          await service.traiter(a.idAlerte);
-          loadAlertes();
-        }),
+      return Container(
+        decoration: BoxDecoration(color: Colors.red.shade50, shape: BoxShape.circle),
+        child: IconButton(
+            icon: const Icon(Icons.priority_high, color: Colors.redAccent),
+            onPressed: () async {
+              await service.traiter(a.idAlerte);
+              loadAlertes();
+            }
+        ),
       );
     } else if (a.statut == "traité") {
-      return CircleAvatar(
-        backgroundColor: Colors.green.shade50,
-        child: IconButton(icon: Icon(Icons.archive_outlined, color: Colors.green), onPressed: () async {
-          await service.archiver(a.idAlerte);
-          loadAlertes();
-        }),
+      return Container(
+        decoration: BoxDecoration(color: Colors.green.shade50, shape: BoxShape.circle),
+        child: IconButton(
+            icon: const Icon(Icons.done_all, color: Colors.green),
+            onPressed: () async {
+              await service.archiver(a.idAlerte);
+              loadAlertes();
+            }
+        ),
       );
     }
-    return Icon(Icons.inventory_2_outlined, color: Colors.grey);
+    return const Icon(Icons.archive_outlined, color: Colors.grey);
   }
 
   // --- ONGLET DASHBOARD ---
@@ -171,20 +185,20 @@ class _AlertePageState extends State<AlertePage> with SingleTickerProviderStateM
     final lastHum = hums.isNotEmpty ? hums.last : 0.0;
 
     return SingleChildScrollView(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       child: Column(
         children: [
           Row(
             children: [
-              _buildStatCard("Température", "$lastTemp°C", Icons.thermostat, Colors.red),
-              SizedBox(width: 12),
-              _buildStatCard("Humidité", "$lastHum%", Icons.water_drop, Colors.blue),
+              _buildStatCard("Température", "$lastTemp°C", Icons.thermostat, Colors.orange),
+              const SizedBox(width: 15),
+              _buildStatCard("Humidité", "$lastHum%", Icons.water_drop, Colors.blueAccent),
             ],
           ),
-          SizedBox(height: 24),
-          _buildChartCard("Historique des relevés", _buildLineChart(temps, hums)),
-          SizedBox(height: 24),
-          _buildChartCard("Comparaison instantanée", _buildBarChart(lastTemp, lastHum)),
+          const SizedBox(height: 25),
+          _buildChartCard("Historique Temps Réel", _buildLineChart(temps, hums)),
+          const SizedBox(height: 25),
+          _buildChartCard("Niveaux Actuels (%)", _buildBarChart(lastTemp, lastHum)),
         ],
       ),
     );
@@ -193,14 +207,19 @@ class _AlertePageState extends State<AlertePage> with SingleTickerProviderStateM
   Widget _buildStatCard(String title, String val, IconData icon, Color color) {
     return Expanded(
       child: Container(
-        padding: EdgeInsets.all(16),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(25),
+            boxShadow: [BoxShadow(color: color.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4))]
+        ),
         child: Column(
           children: [
-            Icon(icon, color: color, size: 30),
-            SizedBox(height: 8),
-            Text(val, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            Text(title, style: TextStyle(color: Colors.grey, fontSize: 12)),
+            Icon(icon, color: color, size: 35),
+            const SizedBox(height: 12),
+            Text(val, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.w600)),
           ],
         ),
       ),
@@ -210,28 +229,32 @@ class _AlertePageState extends State<AlertePage> with SingleTickerProviderStateM
   Widget _buildChartCard(String title, Widget chart) {
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(30),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          SizedBox(height: 20),
-          SizedBox(height: 200, child: chart),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1B4332))),
+          const SizedBox(height: 25),
+          SizedBox(height: 220, child: chart),
         ],
       ),
     );
   }
 
+  // --- LOGIQUE DES GRAPHIQUES (LineChart) ---
   Widget _buildLineChart(List<double> temps, List<double> hums) {
     return LineChart(
       LineChartData(
-        gridData: FlGridData(show: false),
-        titlesData: FlTitlesData(show: false),
+        gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.shade100, strokeWidth: 1)),
+        titlesData: const FlTitlesData(show: false),
         borderData: FlBorderData(show: false),
         lineBarsData: [
-          _generateLineData(temps, Colors.red),
-          _generateLineData(hums, Colors.blue),
+          _generateLineData(temps, Colors.orange),
+          _generateLineData(hums, Colors.blueAccent),
         ],
       ),
     );
@@ -239,12 +262,14 @@ class _AlertePageState extends State<AlertePage> with SingleTickerProviderStateM
 
   LineChartBarData _generateLineData(List<double> data, Color color) {
     return LineChartBarData(
-      spots: List.generate(data.length, (i) => FlSpot(i.toDouble(), data[i])),
+      spots: data.isEmpty
+          ? [const FlSpot(0, 0)]
+          : List.generate(data.length, (i) => FlSpot(i.toDouble(), data[i])),
       isCurved: true,
       color: color,
       barWidth: 4,
       isStrokeCapRound: true,
-      dotData: FlDotData(show: false),
+      dotData: const FlDotData(show: false),
       belowBarData: BarAreaData(show: true, color: color.withOpacity(0.1)),
     );
   }
@@ -255,21 +280,32 @@ class _AlertePageState extends State<AlertePage> with SingleTickerProviderStateM
         alignment: BarChartAlignment.spaceAround,
         maxY: 100,
         barGroups: [
-          _generateBarGroup(0, lastTemp, Colors.red),
-          _generateBarGroup(1, lastHum, Colors.blue),
+          _generateBarGroup(0, lastTemp, Colors.orange),
+          _generateBarGroup(1, lastHum, Colors.blueAccent),
         ],
         titlesData: FlTitlesData(
             bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (v, m) {
-              return Text(v == 0 ? "Temp" : "Hum", style: TextStyle(fontSize: 10));
+              return Padding(
+                padding: const EdgeInsets.only(top: 10.0),
+                child: Text(v == 0 ? "TEMP" : "HUM", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+              );
             }))
         ),
+        gridData: const FlGridData(show: false),
+        borderData: FlBorderData(show: false),
       ),
     );
   }
 
   BarChartGroupData _generateBarGroup(int x, double y, Color color) {
     return BarChartGroupData(x: x, barRods: [
-      BarChartRodData(toY: y, color: color, width: 18, borderRadius: BorderRadius.circular(4))
+      BarChartRodData(
+        toY: y,
+        color: color,
+        width: 25,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+        backDrawRodData: BackgroundBarChartRodData(show: true, toY: 100, color: Colors.grey.shade100),
+      )
     ]);
   }
 }

@@ -1,13 +1,13 @@
 class Stock {
-  String id_stock;
-  String nom;
-  String type;
-  int quantite;
-  int seuilAlerte;
-  String date;
-  String unite;
-  int code_expl;
-  String? imagePath;
+  final String id_stock;   // ✅ String car backend renvoie Date.now().toString()
+  final String nom;
+  final String type;
+  final int quantite;
+  final int seuilAlerte;
+  final String date;
+  final String unite;
+  final int code_expl;
+  final String? imagePath;
 
   Stock({
     required this.id_stock,
@@ -23,7 +23,7 @@ class Stock {
 
   factory Stock.fromJson(Map<String, dynamic> json) {
     return Stock(
-      id_stock: json['id_stock'],
+      id_stock: json['id_stock'].toString(), // ✅ conversion en String
       nom: json['nom'],
       type: json['type'],
       quantite: json['quantite'],

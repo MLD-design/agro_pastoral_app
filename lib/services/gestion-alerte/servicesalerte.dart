@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import '../../models/gestion-alerte/modelalerte.dart';
 
 class AlerteService {
-  final String baseUrl = "http://192.168.1.16:3000/api/alertes";
+  final String baseUrl = "http://192.168.1.200:3000/api/alertes";
 
   Future<List<Alerte>> getByExploitation(int codeExpl) async {
     final response = await http.get(Uri.parse("$baseUrl/$codeExpl"));

@@ -3,9 +3,9 @@ import 'package:http/http.dart' as http;
 import '../../models/gestion-personnel/modelconge.dart';
 
 class CongeService {
-  final baseUrl = "http://192.168.1.16:3000/api/conges";
+  final baseUrl = "http://192.168.1.200:3000/api/conges";
 
-  Future<List<Conge>> getByExploitation(int codeExpl) async {
+  Future<List<Conge>> getByExploitation(int codeExpl, String token) async {
     final res = await http.get(Uri.parse("$baseUrl/$codeExpl"));
     if (res.statusCode == 200) {
       final List data = json.decode(res.body);
@@ -14,7 +14,17 @@ class CongeService {
     return [];
   }
 
-  Future<void> add(Conge conge) async {
+  // 🔴 NOUVELLE MÉTHODE : Récupérer les congés d'un employé spécifique
+  Future<List<Conge>> getByEmploye(int employeId, String token) async {
+    final res = await http.get(Uri.parse("$baseUrl/employe/$employeId"));
+    if (res.statusCode == 200) {
+      final List data = json.decode(res.body);
+      return data.map((e) => Conge.fromJson(e)).toList();
+    }
+    return [];
+  }
+
+  Future<void> add(Conge conge, String token) async {
     await http.post(
       Uri.parse(baseUrl),
       headers: {"Content-Type": "application/json"},
@@ -28,7 +38,7 @@ class CongeService {
     );
   }
 
-  Future<void> updateStatut(int idConge, String statut) async {
+  Future<void> updateStatut(int idConge, String statut, String token) async {
     await http.put(
       Uri.parse("$baseUrl/$idConge"),
       headers: {"Content-Type": "application/json"},

@@ -1,133 +1,138 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../models/gestion-exploitation/modelexploitation.dart';
-import '../../services/gestion-exploitation/servicesexploitation.dart';
 import '../../services/gestion-stock/servicesstock.dart';
+import '../../models/gestion-compte/modeluser.dart';
 
 class AddStockPage extends StatefulWidget {
+  final User user;
+  const AddStockPage({super.key, required this.user});
+
   @override
-  _AddStockPageState createState() => _AddStockPageState();
+  State<AddStockPage> createState() => _AddStockPageState();
 }
 
 class _AddStockPageState extends State<AddStockPage> {
   final _formKey = GlobalKey<FormState>();
-  String nom = "";
-  String type = "intrant";
-  int quantite = 0;
-  String unite = "kg";
-  int seuil = 5;
-  bool isLoading = false;
-  File? image;
-  final picker = ImagePicker();
+  final _nomController = TextEditingController();
+  final _quantiteController = TextEditingController();
+  final _uniteController = TextEditingController(text: "kg");
+  final _seuilController = TextEditingController(text: "5");
 
-  List<Exploitation> exploitations = [];
-  int? selectedExpl;
-  final exploitationService = ExploitationService();
+  String selectedType = "intrant";
+  File? _image;
+  bool isLoading = false;
+
+  // Couleurs harmonisées
+  final Color primaryColor = const Color(0xFF1B4332);
+  final Color backgroundColor = const Color(0xFFF8FAF9);
 
   final List<Map<String, dynamic>> categories = [
     {"id": "intrant", "label": "Intrant", "icon": Icons.science},
     {"id": "aliment", "label": "Aliment", "icon": Icons.set_meal},
-    {"id": "medicament", "label": "Médiament", "icon": Icons.medication},
-    {"id": "equipement", "label": "Equipement", "icon": Icons.handyman},
+    {"id": "medicament", "label": "Santé", "icon": Icons.medication},
+    {"id": "equipement", "label": "Matériel", "icon": Icons.handyman},
   ];
 
-  @override
-  void initState() {
-    super.initState();
-    loadExploitations();
+  Future<void> _pickImage() async {
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 70);
+    if (picked != null) setState(() => _image = File(picked.path));
   }
 
-  void loadExploitations() async {
-    exploitations = await exploitationService.getAll();
-    setState(() {});
-  }
-
-  Future pickImage() async {
-    final picked = await picker.pickImage(source: ImageSource.gallery);
-    if (picked != null) setState(() => image = File(picked.path));
-  }
-
-  void submit() async {
-    if (!_formKey.currentState!.validate() || selectedExpl == null) return;
-    _formKey.currentState!.save();
+  Future<void> submit() async {
+    if (!_formKey.currentState!.validate()) return;
     setState(() => isLoading = true);
-    await StockService.addStock({
-      "nom": nom, "type": type, "quantite": quantite,
-      "unite": unite, "seuilAlerte": seuil,
-      "imagePath": image?.path, "code_expl": selectedExpl
-    });
-    setState(() => isLoading = false);
-    Navigator.pop(context, true);
+    try {
+      final stockData = {
+        "nom": _nomController.text,
+        "type": selectedType,
+        "quantite": int.parse(_quantiteController.text),
+        "unite": _uniteController.text,
+        "seuilAlerte": int.parse(_seuilController.text),
+        "code_expl": widget.user.code_expl,
+        "imagePath": _image?.path,
+      };
+      await StockService.addStock(stockData, widget.user.token);
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) {
+        setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur : $e")));
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Nouveau Produit")),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(24),
-          children: [
-            _buildImagePicker(),
-            const SizedBox(height: 25),
-            _buildLabel("Exploitation"),
-            DropdownButtonFormField<int>(
-              value: selectedExpl,
-              decoration: _inputDeco(Icons.location_on),
-              items: exploitations.map((e) => DropdownMenuItem(value: e.code_expl, child: Text(e.nom_expl))).toList(),
-              onChanged: (v) => setState(() => selectedExpl = v),
-            ),
-            const SizedBox(height: 20),
-            _buildLabel("Catégorie"),
-            _buildTypeSelector(),
-            const SizedBox(height: 20),
-            TextFormField(
-              decoration: _inputDeco(Icons.shopping_basket).copyWith(labelText: "Nom du produit"),
-              validator: (v) => v!.isEmpty ? "Champ obligatoire" : null,
-              onSaved: (v) => nom = v!,
-            ),
-            const SizedBox(height: 15),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    keyboardType: TextInputType.number,
-                    decoration: _inputDeco(Icons.numbers).copyWith(labelText: "Qté initiale"),
-                    onSaved: (v) => quantite = int.parse(v!),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextFormField(
-                    decoration: _inputDeco(Icons.scale).copyWith(labelText: "Unité (kg, L...)"),
-                    initialValue: "kg",
-                    onSaved: (v) => unite = v!,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 15),
-            TextFormField(
-              keyboardType: TextInputType.number,
-              decoration: _inputDeco(Icons.warning).copyWith(labelText: "Seuil d'alerte"),
-              initialValue: "5",
-              onSaved: (v) => seuil = int.parse(v!),
-            ),
-            const SizedBox(height: 30),
-            SizedBox(
-              height: 55,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1B5E20),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                ),
-                onPressed: isLoading ? null : submit,
-                child: isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("ENREGISTRER LE STOCK", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      backgroundColor: backgroundColor, // 🔴 Fond harmonisé
+      appBar: AppBar(
+        title: const Text("Nouveau Produit", style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: primaryColor, // 🔴 Vert profond
+        foregroundColor: Colors.white,
+        centerTitle: true,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildImagePicker(),
+              const SizedBox(height: 25),
+              _sectionTitle("Catégorie"),
+              _buildTypeSelector(),
+              const SizedBox(height: 20),
+              _sectionTitle("Détails du produit"),
+              TextFormField(
+                controller: _nomController,
+                decoration: _inputStyle("Nom du produit", Icons.shopping_basket),
+                validator: (v) => v!.isEmpty ? "Le nom est obligatoire" : null,
               ),
-            ),
-          ],
+              const SizedBox(height: 15),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _quantiteController,
+                      keyboardType: TextInputType.number,
+                      decoration: _inputStyle("Quantité initiale", Icons.numbers),
+                      validator: (v) => v!.isEmpty ? "Requis" : null,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _uniteController,
+                      decoration: _inputStyle("Unité (kg, L, ...)", Icons.scale),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 15),
+              TextFormField(
+                controller: _seuilController,
+                keyboardType: TextInputType.number,
+                decoration: _inputStyle("Seuil d'alerte critique", Icons.warning_amber),
+              ),
+              const SizedBox(height: 40),
+              SizedBox(
+                width: double.infinity,
+                height: 55,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor, // 🔴 Vert profond
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                  ),
+                  onPressed: isLoading ? null : submit,
+                  child: isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text("ENREGISTRER LE PRODUIT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -135,17 +140,17 @@ class _AddStockPageState extends State<AddStockPage> {
 
   Widget _buildImagePicker() {
     return GestureDetector(
-      onTap: pickImage,
+      onTap: _pickImage,
       child: Center(
         child: Container(
           width: double.infinity, height: 180,
           decoration: BoxDecoration(
-            color: Colors.grey[100], borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.grey[300]!, width: 2),
+            color: Colors.white, borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: primaryColor.withOpacity(0.3), width: 2),
           ),
-          child: image == null
-              ? const Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.camera_alt, size: 40, color: Colors.grey), Text("Ajouter une photo")])
-              : ClipRRect(borderRadius: BorderRadius.circular(18), child: Image.file(image!, fit: BoxFit.cover)),
+          child: _image == null
+              ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.camera_alt, size: 45, color: primaryColor.withOpacity(0.5)), const SizedBox(height: 10), const Text("Ajouter une photo")])
+              : ClipRRect(borderRadius: BorderRadius.circular(18), child: Image.file(_image!, fit: BoxFit.cover)),
         ),
       ),
     );
@@ -154,29 +159,31 @@ class _AddStockPageState extends State<AddStockPage> {
   Widget _buildTypeSelector() {
     return Wrap(
       spacing: 8,
+      runSpacing: 8,
       children: categories.map((cat) {
-        bool isSelected = type == cat['id'];
+        bool isSel = selectedType == cat['id'];
         return ChoiceChip(
           label: Text(cat['label']),
-          avatar: Icon(cat['icon'], size: 16, color: isSelected ? Colors.white : Colors.black),
-          selected: isSelected,
-          selectedColor: const Color(0xFF1B5E20),
-          labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black),
-          onSelected: (v) => setState(() => type = cat['id']),
+          selected: isSel,
+          selectedColor: primaryColor, // 🔴 Vert profond
+          labelStyle: TextStyle(color: isSel ? Colors.white : Colors.black, fontWeight: isSel ? FontWeight.bold : FontWeight.normal),
+          onSelected: (v) => setState(() => selectedType = cat['id']),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         );
       }).toList(),
     );
   }
 
-  InputDecoration _inputDeco(IconData icon) => InputDecoration(
-    prefixIcon: Icon(icon, size: 20),
-    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-    filled: true,
-    fillColor: Colors.white,
+  InputDecoration _inputStyle(String label, IconData icon) => InputDecoration(
+    labelText: label,
+    prefixIcon: Icon(icon, size: 20, color: primaryColor), // 🔴 Vert profond
+    filled: true, fillColor: Colors.white,
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide(color: primaryColor.withOpacity(0.3))),
+    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide(color: primaryColor.withOpacity(0.3))),
   );
 
-  Widget _buildLabel(String text) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
-    child: Text(text, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
+  Widget _sectionTitle(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 12, top: 10),
+    child: Text(text, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: primaryColor)), // 🔴 Vert profond
   );
 }

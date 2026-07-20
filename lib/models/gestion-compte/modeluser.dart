@@ -17,7 +17,7 @@ class User {
     return User(
       id: json["id"] ?? 0, // ✅ valeur par défaut
       username: json["username"] ?? "",
-      role: json["role"] ?? "",
+      role: (json["role"] ?? "").toLowerCase(), // ✅ normalisation
       code_expl: json["code_expl"] ?? 0, // ✅ valeur par défaut
       token: json["token"] ?? "",
     );

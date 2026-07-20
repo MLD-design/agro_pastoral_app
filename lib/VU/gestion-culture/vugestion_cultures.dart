@@ -1,168 +1,167 @@
-import 'package:agro_pastoral_app/models/gestion-compte/modeluser.dart';
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:agro_pastoral_app/VU/gestion-culture/vusuivresemi.dart';
+import 'package:http/http.dart' as http;
+import 'package:agro_pastoral_app/models/gestion-compte/modeluser.dart';
+
+// Importations de vos vues (VU)
 import 'package:agro_pastoral_app/VU/gestion-culture/vuplanifiercampagne.dart';
 import 'package:agro_pastoral_app/VU/gestion-culture/vurappotculture.dart';
 import 'package:agro_pastoral_app/VU/gestion-culture/vuparcelle.dart';
-import 'package:agro_pastoral_app/services/gestion-exploitation/servicesexploitation.dart';
-import '../../models/gestion-exploitation/modelexploitation.dart';
+import 'package:agro_pastoral_app/VU/gestion-culture/vusuivicampagnes.dart';
+import '../gestion-personnel/vuconge.dart'; // Ajuste le chemin si nécessaire
 
 class MyCulturePage extends StatefulWidget {
-  final int code_expl;
-  MyCulturePage({required this.code_expl, required User user,});
+  final User user;
+  final int code_expl; // Récupéré du profil utilisateur
+
+  const MyCulturePage({
+    super.key,
+    required this.user,
+    required this.code_expl
+  });
 
   @override
   State<MyCulturePage> createState() => _MyCulturePageState();
 }
 
 class _MyCulturePageState extends State<MyCulturePage> {
-  List<Exploitation> exploitations = [];
-  Exploitation? selectedExploitation;
-  final exploitationService = ExploitationService();
+  // 🔗 Pas de service dédié à l'exploitation côté Flutter : on interroge
+  // directement l'endpoint existant (GET /api/exploitation) et on retient
+  // celle qui correspond au code_expl courant.
+  final String exploitationUrl = "http://192.168.1.9:3000/api/exploitation";
+
+  String? nomExploitation;
 
   @override
   void initState() {
     super.initState();
-    loadExploitations();
+    _chargerNomExploitation();
   }
 
-  void loadExploitations() async {
-    final data = await exploitationService.getAll();
-    setState(() => exploitations = data);
-  }
-
-  bool checkExploitation() {
-    if (selectedExploitation == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text("Veuillez choisir une exploitation pour continuer"),
-          backgroundColor: Colors.orange[800],
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
+  Future<void> _chargerNomExploitation() async {
+    try {
+      final res = await http.get(
+        Uri.parse(exploitationUrl),
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer ${widget.user.token}",
+        },
       );
-      return false;
+
+      if (res.statusCode != 200) {
+        debugPrint("⚠️ Impossible de charger les exploitations (code ${res.statusCode}) : ${res.body}");
+        return;
+      }
+
+      final List data = jsonDecode(res.body);
+      debugPrint("📦 Exploitations reçues : $data");
+
+      // Les clés exactes du JSON peuvent varier ("code_expl", "code exploitation",
+      // "codeExpl"...) selon l'endroit où l'exploitation a été créée. On normalise
+      // donc chaque clé (minuscule, sans espace/underscore/tiret) pour ne pas
+      // dépendre d'un nommage précis.
+      Map<String, dynamic> normaliser(Map e) {
+        final out = <String, dynamic>{};
+        e.forEach((k, v) => out[k.toString().toLowerCase().replaceAll(RegExp(r'[ _-]'), '')] = v);
+        return out;
+      }
+
+      dynamic trouverValeur(Map<String, dynamic> norm, List<String> cles) {
+        for (final cle in cles) {
+          if (norm.containsKey(cle) && norm[cle] != null) return norm[cle];
+        }
+        return null;
+      }
+
+      Map<String, dynamic>? matchNormalise;
+      for (final e in data) {
+        if (e is! Map) continue;
+        final norm = normaliser(e);
+        final code = trouverValeur(norm, ['codeexpl', 'codeexploitation', 'code']);
+        if (code != null && code.toString() == widget.code_expl.toString()) {
+          matchNormalise = norm;
+          break;
+        }
+      }
+
+      if (matchNormalise != null) {
+        final nom = trouverValeur(matchNormalise, ['nomexpl', 'nomexploitation', 'nom', 'designation', 'name']);
+        if (nom != null && mounted) {
+          setState(() => nomExploitation = nom.toString());
+        } else {
+          debugPrint("⚠️ Exploitation trouvée mais aucune clé de nom reconnue : $matchNormalise");
+        }
+      } else {
+        debugPrint("⚠️ Aucune exploitation ne correspond au code_expl ${widget.code_expl}");
+      }
+    } catch (e) {
+      debugPrint("❌ Erreur lors du chargement du nom d'exploitation : $e");
     }
-    return true;
+  }
+
+  // --- LOGIQUE DE DÉCONNEXION ---
+  void _confirmLogout(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.logout, color: Colors.redAccent),
+            SizedBox(width: 10),
+            Text("Déconnexion"),
+          ],
+        ),
+        content: const Text("Voulez-vous vraiment quitter votre session de travail ?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("ANNULER", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () {
+              // Nettoie l'historique et redirige vers l'écran de login
+              Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+            },
+            child: const Text("QUITTER", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F4F0),
+      backgroundColor: const Color(0xFFF4F7F5),
       body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
         slivers: [
-          // Header avec courbe et texte d'accueil
-          SliverAppBar(
-            expandedHeight: 180,
-            pinned: true,
-            backgroundColor: const Color(0xFF1B4332),
-            flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF1B4332), Color(0xFF2D6A4F)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                ),
-                child: Stack(
-                  children: [
-                    Positioned(
-                      right: -20, top: -20,
-                      child: Icon(Icons.eco, size: 150, color: Colors.white.withOpacity(0.1)),
-                    ),
-                  ],
-                ),
-              ),
-              title: const Text("Ma Culture",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-              centerTitle: true,
-            ),
-          ),
-
+          _buildSliverHeader(context),
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.all(20.0),
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // --- SÉLECTEUR D'EXPLOITATION ---
-                  _buildGlassDropdown(),
-
                   const SizedBox(height: 30),
-
-                  // --- VOS TEXTES RÉINTRODUITS ET STYLISÉS ---
-                  Text(
-                    "Organisez et Suivez vos activités agricoles",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.grey[800],
-                      letterSpacing: -0.5,
-                    ),
-                  ),
+                  _buildHeaderInfo(),
                   const SizedBox(height: 15),
-                  Text(
-                    "À mesure que vous réalisez une de ces fonctionnalités, les données opérationnelles sont associées aux parcelles.",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 14, color: Colors.grey[600], height: 1.5),
-                  ),
-                  const SizedBox(height: 25),
 
-                  // Titre d'appel à l'action
-                  Row(
-                    children: [
-                      const Expanded(child: Divider()),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        child: Text(
-                          "COMMENCER PAR ENREGISTRER VOTRE PARCELLE",
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.green[700]),
-                        ),
-                      ),
-                      const Expanded(child: Divider()),
-                    ],
-                  ),
+                  // 🔴 NOUVEAU : Bouton Congés pour le Technicien Agricole
+                  _buildCongeButton(context),
 
-                  const SizedBox(height: 25),
-
-                  // --- GRILLE DE CARTES INTERACTIVES ---
-                  GridView.count(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 18,
-                    mainAxisSpacing: 18,
-                    childAspectRatio: 0.85,
-                    children: [
-                      _buildPremiumCard(
-                        "Enregistrer Parcelles",
-                        Icons.map_rounded,
-                        Colors.orange,
-                            () => _navigate(ParcellePage(code_expl: selectedExploitation!.code_expl)),
-                      ),
-                      _buildPremiumCard(
-                        "Planifier Campagnes",
-                        Icons.calendar_today_rounded,
-                        Colors.green,
-                            () => _navigate(PlanificationPage(code_expl: selectedExploitation!.code_expl)),
-                      ),
-                      _buildPremiumCard(
-                        "Suivre Activités",
-                        Icons.auto_graph_rounded,
-                        Colors.blue,
-                            () => _navigate(SuiviPage(code_expl: selectedExploitation!.code_expl)),
-                      ),
-                      _buildPremiumCard(
-                        "Rapports de Suivi",
-                        Icons.insert_chart_rounded,
-                        Colors.purple,
-                            () => _navigate(RapportculturePage(code_expl: selectedExploitation!.code_expl)),
-                      ),
-                    ],
-                  ),
+                  const SizedBox(height: 35),
+                  _buildSectionTitle("SERVICES DE CULTURE"),
+                  const SizedBox(height: 20),
+                  _buildMenuGrid(context),
                   const SizedBox(height: 40),
+                  _buildLogoutOption(context),
+                  const SizedBox(height: 60),
                 ],
               ),
             ),
@@ -172,79 +171,258 @@ class _MyCulturePageState extends State<MyCulturePage> {
     );
   }
 
-  // --- LOGIQUE DE NAVIGATION ---
-  void _navigate(Widget page) {
-    if (checkExploitation()) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => page));
-    }
-  }
+  // --- COMPOSANTS DE L'INTERFACE ---
 
-  // --- WIDGET DROPDOWN AMÉLIORÉ ---
-  Widget _buildGlassDropdown() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10)),
-        ],
-      ),
-      child: DropdownButtonFormField<Exploitation>(
-        value: selectedExploitation,
-        decoration: const InputDecoration(border: InputBorder.none, icon: Icon(Icons.business_center, color: Color(0xFF2D6A4F))),
-        hint: const Text("Choisir une exploitation", style: TextStyle(fontWeight: FontWeight.w500)),
-        items: exploitations.map((exp) => DropdownMenuItem(value: exp, child: Text(exp.nom_expl))).toList(),
-        onChanged: (v) => setState(() => selectedExploitation = v),
+  Widget _buildSliverHeader(BuildContext context) {
+    return SliverAppBar(
+      expandedHeight: 160,
+      pinned: true,
+      elevation: 0,
+      backgroundColor: const Color(0xFF1B4332),
+      actions: [
+        IconButton(
+          tooltip: "Déconnexion",
+          icon: const Icon(Icons.power_settings_new_rounded, color: Colors.white70),
+          onPressed: () => _confirmLogout(context),
+        ),
+        const SizedBox(width: 10),
+      ],
+      flexibleSpace: FlexibleSpaceBar(
+        centerTitle: true,
+        title: const Text(
+          "ESPACE CULTURE",
+          style: TextStyle(
+              fontWeight: FontWeight.w900,
+              fontSize: 16,
+              letterSpacing: 1.8,
+              color: Colors.white
+          ),
+        ),
+        background: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF081C15), Color(0xFF1B4332)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: Opacity(
+            opacity: 0.1,
+            child: const Icon(Icons.eco, size: 150, color: Colors.white),
+          ),
+        ),
       ),
     );
   }
 
-  // --- CARTE PREMIUM ---
-  Widget _buildPremiumCard(String title, IconData icon, Color color, VoidCallback onTap) {
+  Widget _buildHeaderInfo() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.green.withOpacity(0.1)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.02),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            )
+          ]
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: const Color(0xFFD8F3DC),
+            child: const Icon(Icons.engineering_rounded, color: Color(0xFF2D6A4F)),
+          ),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  nomExploitation ?? "Exploitation #${widget.code_expl}",
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                Text(
+                  "Connecté en tant que technicien agricole",
+                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 🔴 DESIGN DU NOUVEAU BOUTON DE CONGÉ
+  Widget _buildCongeButton(BuildContext context) {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => CongePage(user: widget.user),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1B4332).withOpacity(0.08),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFF1B4332).withOpacity(0.2)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.beach_access_rounded, color: const Color(0xFF1B4332), size: 22),
+            const SizedBox(width: 12),
+            const Text(
+              "DEMANDER / SUIVRE MES CONGÉS",
+              style: TextStyle(
+                color: Color(0xFF1B4332),
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+          color: Color(0xFF2D6A4F),
+          letterSpacing: 1.2
+      ),
+    );
+  }
+
+  Widget _buildMenuGrid(BuildContext context) {
+    return GridView.count(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisCount: 2,
+      crossAxisSpacing: 16,
+      mainAxisSpacing: 16,
+      childAspectRatio: 0.95,
+      children: [
+        _buildActionCard(
+          context,
+          "Parcelles",
+          "Gestion sols",
+          Icons.landscape_rounded,
+          const Color(0xFF409167),
+          ParcellePage(code_expl: widget.code_expl, user: widget.user),
+        ),
+        _buildActionCard(
+          context,
+          "Campagnes",
+          "Planifier",
+          Icons.event_note_rounded,
+          const Color(0xFF52B788),
+          PlanificationPage(code_expl: widget.code_expl, user: widget.user),
+        ),
+        _buildActionCard(
+          context,
+          "Suivi Réel",
+          "Météo & Croissance",
+          Icons.speed_rounded,
+          const Color(0xFF74C69D),
+          // Le suivi affiche directement les campagnes sous forme de cards :
+          // un tap sur une card ouvre son suivi (voir vusuivicampagnes.dart).
+          SuiviCampagnesPage(code_expl: widget.code_expl, user: widget.user),
+        ),
+        _buildActionCard(
+          context,
+          "Analyses",
+          "Rapports",
+          Icons.analytics_rounded,
+          const Color(0xFF95D5B2),
+          RapportculturePage(code_expl: widget.code_expl, user: widget.user),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionCard(
+      BuildContext context,
+      String title,
+      String sub,
+      IconData icon,
+      Color color,
+      Widget targetPage
+      ) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(25),
-        gradient: LinearGradient(
-          colors: [Colors.white, color.withOpacity(0.05)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
-          BoxShadow(color: color.withOpacity(0.1), blurRadius: 15, offset: const Offset(0, 8)),
+          BoxShadow(color: color.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 5)),
         ],
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(25),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => targetPage)),
+          borderRadius: BorderRadius.circular(24),
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Badge d'icône
                 Container(
-                  padding: const EdgeInsets.all(15),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(icon, color: color, size: 35),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+                  child: Icon(icon, color: color, size: 28),
                 ),
                 const SizedBox(height: 15),
                 Text(
                   title,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1B4332)),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                 ),
-                const SizedBox(height: 8),
-                Icon(Icons.arrow_forward_rounded, size: 16, color: color.withOpacity(0.5)),
+                const SizedBox(height: 4),
+                Text(
+                  sub,
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLogoutOption(BuildContext context) {
+    return Center(
+      child: TextButton.icon(
+        onPressed: () => _confirmLogout(context),
+        icon: const Icon(Icons.logout_rounded, color: Colors.redAccent, size: 18),
+        label: const Text(
+          "DÉCONNEXION DU COMPTE",
+          style: TextStyle(
+              color: Colors.redAccent,
+              fontWeight: FontWeight.w900,
+              fontSize: 12,
+              letterSpacing: 1.1
+          ),
+        ),
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          backgroundColor: Colors.red.withOpacity(0.05),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
     );
